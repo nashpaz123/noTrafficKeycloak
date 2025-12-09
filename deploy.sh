@@ -208,18 +208,37 @@ setup_port_forward() {
     local HOST_PORT=$1
     local TARGET_IP=$2
     local TARGET_PORT=$3
+    local HOST_IP=$(hostname -I | awk '{print $1}')
     
-    # Check if rule already exists
+    # Check if PREROUTING rule already exists
     if sudo iptables -t nat -C PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
-        echo "Port forwarding rule for $HOST_PORT already exists"
-        return 0
+        echo "PREROUTING rule for $HOST_PORT already exists"
+    else
+        # Add PREROUTING rule for external traffic
+        echo "Setting up PREROUTING rule for port $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
+        sudo iptables -t nat -A PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
     fi
     
-    # Add iptables rules for port forwarding
-    echo "Setting up iptables forwarding for port $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
-    sudo iptables -t nat -A PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
-    sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
-    sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d $(hostname -I | awk '{print $1}') -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+    # Check if OUTPUT rule for localhost exists
+    if sudo iptables -t nat -C OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
+        echo "OUTPUT rule for localhost ($HOST_PORT) already exists"
+    else
+        # Add OUTPUT rule for localhost
+        echo "Setting up OUTPUT rule for localhost: $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
+        sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+    fi
+    
+    # Check if OUTPUT rule for host IP exists
+    if [ -n "$HOST_IP" ]; then
+        if sudo iptables -t nat -C OUTPUT -p tcp --dport $HOST_PORT -d ${HOST_IP} -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
+            echo "OUTPUT rule for host IP ($HOST_PORT) already exists"
+        else
+            # Add OUTPUT rule for host IP
+            echo "Setting up OUTPUT rule for host IP ($HOST_IP): $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
+            sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d ${HOST_IP} -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+        fi
+    fi
+    
     echo "Port forwarding configured for $HOST_PORT"
 }
 
