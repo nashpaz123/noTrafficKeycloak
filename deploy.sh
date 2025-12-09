@@ -195,6 +195,11 @@ kubectl get services -n keycloak-proxy
 # Setup iptables port forwarding to make NodePorts accessible on host interface
 echo ""
 echo "=== Setting up port forwarding ==="
+# Enable IP forwarding
+echo "Enabling IP forwarding..."
+sudo sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf > /dev/null
+
 MINIKUBE_IP=$(minikube ip)
 echo "Minikube IP: $MINIKUBE_IP"
 
