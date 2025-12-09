@@ -1,31 +1,29 @@
 # Keycloak Deployment on Minikube
 
-This project deploys a Keycloak server behind an Nginx reverse proxy with TLS (self-signed certificate) on a local Kubernetes cluster using Minikube. The reverse proxy is the only externally exposed component via NodePort.
+Thi s project deploys a Keycloak server behind Nginx reverse proxy with TLS (self-signed certificate) on a local Kubernetes cluster using Minikube. The reverse proxy is the only externally exposed component exposed via NodePort
 
 ## Architecture
 
-- **Keycloak**: Running internally as a ClusterIP service (not exposed externally)
+- **Keycloak**: Running internally as a ClusterIP service 
 - **Nginx Reverse Proxy**: Running with TLS termination, exposed via NodePort
 - **TLS**: Self-signed certificate for HTTPS
 - **Kubernetes**: Minikube cluster with Docker driver
 
 ## Prerequisites
 
-- Ubuntu 24.04 (or similar Linux distribution)
-- Internet connection for downloading dependencies
-- Sudo access for installing packages
+- tested on Ubuntu 24.04 aws instance with all ports open (see below for proper sg rules)
 
-## AWS Security Group Configuration
+## AWS Security group conf
 
-If deploying on an AWS EC2 instance, you need to open the following ports in your security group:
+deploying on an AWS EC2 instance, you need to open the ports in your security group:
 
 - **Port 22**: SSH (already open)
-- **Port 80**: HTTP redirect (already open, but NodePort 30080 will be used)
-- **Port 443**: HTTPS (already open, but NodePort 30443 will be used)
-- **Port 30080**: HTTP NodePort (for testing HTTP redirect)
-- **Port 30443**: HTTPS NodePort (primary access point)
+- **Port 80**: HTTP redirect (  NodePort 30080 will be used)
+- **Port 443**: HTTPS (  NodePort 30443 will be used)
+- **Port 30080**: HTTP NodePort (for testing HTTP redirect - 301 moved)
+- **Port 30443**: HTTPS NodePort (primary client facing point)
 
-**Note**: The NodePorts (30080 and 30443) are the actual ports that need to be accessible. Iptables port forwarding (configured automatically by deploy.sh) makes these ports available on the host interface. If your security group only allows 80 and 443, you'll need to add rules for:
+**Note**: The NodePorts (30080 and 30443) are the actual ports that need to be accessible. Iptables port forwarding (configured automatically by deploy.sh) makes these ports available on the host interface. If your security group only allows 80 and 443, add rules for:
 - Inbound TCP port 30080 from 0.0.0.0/0
 - Inbound TCP port 30443 from 0.0.0.0/0
 
@@ -86,7 +84,7 @@ The smoke test script will:
 
 Upon successful completion, the script will display the access URL.
 
-### Step 4: Verify Connectivity (Optional)
+### Step 4: Verify Connectivity (if running into munikube tunneling issues)
 
 If you're experiencing connection issues, run the connectivity verification script:
 
@@ -106,7 +104,7 @@ This script will:
 
 ### Local Access (Minikube)
 
-After running the smoke test, you'll see the Minikube IP and ports. Access Keycloak at:
+After running the smoke test, you'll see the Minikube IP and ports. Access Keycloak on the local machine at:
 
 ```
 https://<MINIKUBE_IP>:30443
@@ -205,7 +203,10 @@ If you get "ERR_CONNECTION_TIMED_OUT" or "ERR_CONNECTION_REFUSED":
 1. **Verify NodePort service is running:**
    ```bash
    kubectl get svc nginx-proxy -n keycloak-proxy
-   # Should show NodePort type with ports 30080 and 30443
+   # Should show e.g:
+#   ubuntu@ip-172-31-46-210:~$ kubectl get svc nginx-proxy -n keycloak-proxy
+#NAME          TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+#nginx-proxy   NodePort   10.101.90.141   <none>        443:30443/TCP,80:30080/TCP   71m
    ```
 
 2. **Check IP forwarding is enabled:**
@@ -298,13 +299,19 @@ Or add the rules to a startup script that runs on boot.
 
 ```
 .
-├── README.md           # This file
-├── setup.sh            # Setup script (installs dependencies, starts Minikube)
-├── deploy.sh           # Deployment script (deploys Keycloak and Nginx)
-├── smoke-test.sh       # Smoke test script (validates deployment)
-├── cleanup.sh          # Cleanup script (removes all resources)
-├── nginx.conf          # Nginx configuration file
-└── .gitignore          # Git ignore file
+├── README.md                    # This file
+├── setup.sh                     # Setup script (installs dependencies, starts Minikube)
+├── deploy.sh                    # Deployment script (deploys Keycloak and Nginx)
+├── smoke-test.sh                # Smoke test script (validates deployment)
+├── cleanup.sh                   # Cleanup script (removes all resources)
+├── verify-connectivity.sh      # Optional connectivity verification script
+├── nginx.conf                   # Nginx configuration file
+├── .gitignore                   # Git ignore file
+└── k8s/                         # Kubernetes manifest files
+    ├── keycloak-deployment.yaml # Keycloak deployment
+    ├── keycloak-service.yaml    # Keycloak service (ClusterIP)
+    ├── nginx-deployment.yaml    # Nginx reverse proxy deployment
+    └── nginx-service.yaml       # Nginx service (NodePort)
 ```
 
 ## Notes

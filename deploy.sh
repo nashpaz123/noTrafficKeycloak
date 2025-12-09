@@ -40,59 +40,8 @@ kubectl create secret tls keycloak-tls \
 
 # Deploy Keycloak
 echo "Deploying Keycloak..."
-cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: keycloak
-  namespace: keycloak-proxy
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: keycloak
-  template:
-    metadata:
-      labels:
-        app: keycloak
-    spec:
-      containers:
-      - name: keycloak
-        image: quay.io/keycloak/keycloak:latest
-        args:
-        - start-dev
-        - --http-relative-path=/
-        env:
-        - name: KEYCLOAK_ADMIN
-          value: "admin"
-        - name: KEYCLOAK_ADMIN_PASSWORD
-          value: "admin"
-        ports:
-        - containerPort: 8080
-          name: http
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: keycloak
-  namespace: keycloak-proxy
-spec:
-  type: ClusterIP
-  selector:
-    app: keycloak
-  ports:
-  - port: 8080
-    targetPort: 8080
-    protocol: TCP
-    name: http
-EOF
+kubectl apply -f k8s/keycloak-deployment.yaml
+kubectl apply -f k8s/keycloak-service.yaml
 
 # Wait for Keycloak to be ready
 echo "Waiting for Keycloak to be ready..."
@@ -111,73 +60,8 @@ kubectl create configmap nginx-config \
 
 # Deploy Nginx reverse proxy
 echo "Deploying Nginx reverse proxy..."
-cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-proxy
-  namespace: keycloak-proxy
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nginx-proxy
-  template:
-    metadata:
-      labels:
-        app: nginx-proxy
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:alpine
-        ports:
-        - containerPort: 443
-          name: https
-        - containerPort: 80
-          name: http
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/nginx.conf
-          subPath: nginx.conf
-        - name: tls-cert
-          mountPath: /etc/nginx/ssl
-          readOnly: true
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "100m"
-          limits:
-            memory: "128Mi"
-            cpu: "200m"
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: nginx-config
-      - name: tls-cert
-        secret:
-          secretName: keycloak-tls
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nginx-proxy
-  namespace: keycloak-proxy
-spec:
-  type: NodePort
-  selector:
-    app: nginx-proxy
-  ports:
-  - port: 443
-    targetPort: 443
-    protocol: TCP
-    name: https
-    nodePort: 30443
-  - port: 80
-    targetPort: 80
-    protocol: TCP
-    name: http
-    nodePort: 30080
-EOF
+kubectl apply -f k8s/nginx-deployment.yaml
+kubectl apply -f k8s/nginx-service.yaml
 
 # Wait for nginx to be ready
 echo "Waiting for Nginx to be ready..."
@@ -248,4 +132,5 @@ setup_port_forward 30443 $MINIKUBE_IP 30443
 
 echo ""
 echo "Port forwarding setup complete. NodePorts should now be accessible on the host interface."
-
+echo "You can now access Keycloak at https://localhost:30443 or http://<MINIKUBE_IP>:30443"
+echo "or via minikube tunnel externally at https://<EC2_PUBLIC_IP>:30443"
