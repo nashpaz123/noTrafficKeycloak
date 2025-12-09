@@ -88,6 +88,22 @@ The smoke test script will:
 
 Upon successful completion, the script will display the access URL.
 
+### Step 4: Verify Connectivity (Optional)
+
+If you're experiencing connection issues, run the connectivity verification script:
+
+```bash
+chmod +x verify-connectivity.sh
+./verify-connectivity.sh
+```
+
+This script will:
+- Check all system configurations
+- Verify iptables rules
+- Test connectivity from multiple IP addresses
+- Identify missing configurations
+- Provide specific fix instructions
+
 ## Accessing Keycloak
 
 ### Local Access (Minikube)
