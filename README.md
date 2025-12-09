@@ -25,7 +25,7 @@ If deploying on an AWS EC2 instance, you need to open the following ports in you
 - **Port 30080**: HTTP NodePort (for testing HTTP redirect)
 - **Port 30443**: HTTPS NodePort (primary access point)
 
-**Note**: The NodePorts (30080 and 30443) are the actual ports that need to be accessible. If your security group only allows 80 and 443, you'll need to add rules for:
+**Note**: The NodePorts (30080 and 30443) are the actual ports that need to be accessible. Minikube tunnel (started automatically by setup.sh) makes these ports available on the host interface. If your security group only allows 80 and 443, you'll need to add rules for:
 - Inbound TCP port 30080 from 0.0.0.0/0
 - Inbound TCP port 30443 from 0.0.0.0/0
 
@@ -47,8 +47,9 @@ This script will:
 - Install kubectl (if not already installed)
 - Install Minikube (if not already installed)
 - Start a Minikube cluster with Docker driver
+- Start Minikube tunnel to expose NodePort services on the host interface
 
-**Note**: If Docker was just installed, you may need to log out and back in, or the script will use sudo for docker commands.
+**Note**: If Docker was just installed, you may need to log out and back in. The script will attempt to handle docker group permissions automatically. Minikube tunnel runs in the background to make NodePort services accessible from outside the Minikube VM.
 
 ### Step 2: Deploy Keycloak and Nginx
 

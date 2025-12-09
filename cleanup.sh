@@ -25,6 +25,16 @@ kubectl wait --for=delete namespace/keycloak-proxy --timeout=60s 2>/dev/null || 
 echo "Cleaning up local certificates..."
 rm -rf certs
 
+# Stop minikube tunnel if running
+echo "Stopping minikube tunnel (if running)..."
+if pgrep -f "minikube tunnel" > /dev/null; then
+    pkill -f "minikube tunnel"
+    sleep 2
+    echo "Minikube tunnel stopped"
+else
+    echo "Minikube tunnel is not running"
+fi
+
 echo "=== Cleanup complete ==="
 echo ""
 echo "To completely remove Minikube, run: minikube delete"

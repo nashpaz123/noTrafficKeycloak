@@ -69,11 +69,36 @@ if minikube status &> /dev/null; then
 fi
 
 # Start minikube with docker driver
-minikube start --driver=docker
+echo "Starting Minikube (this may take a few minutes)..."
+if ! minikube start --driver=docker; then
+    echo "Warning: Minikube start failed. This might be due to docker permissions."
+    echo "If you see permission errors, try: newgrp docker"
+    echo "Then run: minikube start --driver=docker"
+    exit 1
+fi
 
 # Enable ingress addon (optional, but useful)
 # minikube addons enable ingress
 
 echo "=== Minikube cluster is ready ==="
 minikube status
+
+# Start minikube tunnel to expose NodePort services on host interface
+echo ""
+echo "=== Starting Minikube tunnel ==="
+# Check if tunnel is already running
+if pgrep -f "minikube tunnel" > /dev/null; then
+    echo "Minikube tunnel is already running"
+else
+    echo "Starting minikube tunnel in background..."
+    nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
+    sleep 3
+    if pgrep -f "minikube tunnel" > /dev/null; then
+        echo "Minikube tunnel started successfully"
+        echo "Tunnel logs: /tmp/minikube-tunnel.log"
+    else
+        echo "Warning: Failed to start minikube tunnel. You may need to run it manually:"
+        echo "  minikube tunnel"
+    fi
+fi
 
