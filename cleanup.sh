@@ -25,26 +25,14 @@ kubectl wait --for=delete namespace/keycloak-proxy --timeout=60s 2>/dev/null || 
 echo "Cleaning up local certificates..."
 rm -rf certs
 
-# Remove iptables port forwarding rules
-echo "Removing iptables port forwarding rules..."
-MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "")
-if [ -n "$MINIKUBE_IP" ]; then
-    # Remove PREROUTING rules
-    sudo iptables -t nat -D PREROUTING -p tcp --dport 30080 -j DNAT --to-destination ${MINIKUBE_IP}:30080 2>/dev/null || true
-    sudo iptables -t nat -D PREROUTING -p tcp --dport 30443 -j DNAT --to-destination ${MINIKUBE_IP}:30443 2>/dev/null || true
-    
-    # Remove OUTPUT rules
-    sudo iptables -t nat -D OUTPUT -p tcp --dport 30080 -d 127.0.0.1 -j DNAT --to-destination ${MINIKUBE_IP}:30080 2>/dev/null || true
-    sudo iptables -t nat -D OUTPUT -p tcp --dport 30443 -d 127.0.0.1 -j DNAT --to-destination ${MINIKUBE_IP}:30443 2>/dev/null || true
-    
-    HOST_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "")
-    if [ -n "$HOST_IP" ]; then
-        sudo iptables -t nat -D OUTPUT -p tcp --dport 30080 -d $HOST_IP -j DNAT --to-destination ${MINIKUBE_IP}:30080 2>/dev/null || true
-        sudo iptables -t nat -D OUTPUT -p tcp --dport 30443 -d $HOST_IP -j DNAT --to-destination ${MINIKUBE_IP}:30443 2>/dev/null || true
-    fi
-    echo "Iptables rules removed"
+# Stop minikube tunnel if running
+echo "Stopping minikube tunnel (if running)..."
+if pgrep -f "minikube tunnel" > /dev/null; then
+    pkill -f "minikube tunnel"
+    sleep 2
+    echo "Minikube tunnel stopped"
 else
-    echo "Minikube not running, skipping iptables cleanup"
+    echo "Minikube tunnel is not running"
 fi
 
 echo "=== Cleanup complete ==="

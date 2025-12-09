@@ -83,7 +83,7 @@ fi
 echo "=== Minikube cluster is ready ==="
 minikube status
 
-# Port forwarding will be set up automatically by deploy.sh after services are created
+# Minikube tunnel will be started by deploy.sh for LoadBalancer services
 echo ""
-echo "Note: Port forwarding for NodePorts will be configured during deployment."
+echo "Note: Minikube tunnel will be started during deployment for LoadBalancer services."
 

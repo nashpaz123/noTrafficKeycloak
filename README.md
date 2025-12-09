@@ -5,7 +5,7 @@ This project deploys a Keycloak server behind an Nginx reverse proxy with TLS (s
 ## Architecture
 
 - **Keycloak**: Running internally as a ClusterIP service (not exposed externally)
-- **Nginx Reverse Proxy**: Running with TLS termination, exposed via NodePort
+- **Nginx Reverse Proxy**: Running with TLS termination, exposed via LoadBalancer (using minikube tunnel)
 - **TLS**: Self-signed certificate for HTTPS
 - **Kubernetes**: Minikube cluster with Docker driver
 
@@ -22,14 +22,12 @@ If deploying on an AWS EC2 instance, you need to open the following ports in you
 - **Port 22**: SSH (already open)
 - **Port 80**: HTTP redirect (already open, but NodePort 30080 will be used)
 - **Port 443**: HTTPS (already open, but NodePort 30443 will be used)
-- **Port 30080**: HTTP NodePort (for testing HTTP redirect)
-- **Port 30443**: HTTPS NodePort (primary access point)
+- **Port 80**: HTTP (redirects to HTTPS)
+- **Port 443**: HTTPS (primary access point)
 
-**Note**: The NodePorts (30080 and 30443) are the actual ports that need to be accessible. Minikube tunnel (started automatically by setup.sh) makes these ports available on the host interface. If your security group only allows 80 and 443, you'll need to add rules for:
-- Inbound TCP port 30080 from 0.0.0.0/0
-- Inbound TCP port 30443 from 0.0.0.0/0
-
-Alternatively, you can modify the NodePort values in `deploy.sh` to use ports 80 and 443, but this requires running Minikube with sudo privileges.
+**Note**: The service uses LoadBalancer type with minikube tunnel, which makes it accessible on localhost ports 80 and 443. For AWS EC2 access, ensure your security group allows:
+- Inbound TCP port 80 from 0.0.0.0/0
+- Inbound TCP port 443 from 0.0.0.0/0
 
 ## Installation and Deployment
 
@@ -47,9 +45,8 @@ This script will:
 - Install kubectl (if not already installed)
 - Install Minikube (if not already installed)
 - Start a Minikube cluster with Docker driver
-- Start Minikube tunnel to expose NodePort services on the host interface
 
-**Note**: If Docker was just installed, you may need to log out and back in. The script will attempt to handle docker group permissions automatically. Minikube tunnel runs in the background to make NodePort services accessible from outside the Minikube VM.
+**Note**: If Docker was just installed, you may need to log out and back in. The script will attempt to handle docker group permissions automatically. Minikube tunnel will be started automatically during deployment to expose the LoadBalancer service.
 
 ### Step 2: Deploy Keycloak and Nginx
 
@@ -65,7 +62,7 @@ This script will:
 - Generate self-signed TLS certificates
 - Deploy Keycloak as an internal service (ClusterIP)
 - Deploy Nginx reverse proxy with TLS termination
-- Expose Nginx via NodePort (ports 30080 for HTTP, 30443 for HTTPS)
+- Expose Nginx via LoadBalancer (accessible on ports 80 and 443 via minikube tunnel)
 
 The deployment may take a few minutes for all pods to be ready.
 
@@ -108,21 +105,24 @@ This script will:
 
 ### Local Access (Minikube)
 
-After running the smoke test, you'll see the Minikube IP and ports. Access Keycloak at:
+After running the smoke test, you'll see the LoadBalancer external IP. Access Keycloak at:
 
 ```
-https://<MINIKUBE_IP>:30443
+https://localhost:443
 ```
 
-For example: `https://192.168.49.2:30443`
+Or if LoadBalancer has an external IP:
+```
+https://<EXTERNAL_IP>:443
+```
 
 ### Remote Access (AWS EC2)
 
 If running on an AWS EC2 instance:
 
-1. Get your EC2 public IP address
-2. Access Keycloak at: `https://<EC2_PUBLIC_IP>:30443`
-3. Make sure port 30443 is open in your security group
+1. Ensure minikube tunnel is running (started automatically by deploy.sh)
+2. Access Keycloak at: `https://<EC2_PUBLIC_IP>:443` or `https://localhost:443`
+3. Make sure ports 80 and 443 are open in your security group
 
 **Important**: You'll need to accept the self-signed certificate warning in your browser.
 
@@ -204,49 +204,39 @@ kubectl logs <pod-name> -n keycloak-proxy
 
 If you get "ERR_CONNECTION_TIMED_OUT" or "ERR_CONNECTION_REFUSED":
 
-1. **Verify NodePort service is running:**
+1. **Verify LoadBalancer service is running:**
    ```bash
    kubectl get svc nginx-proxy -n keycloak-proxy
-   # Should show NodePort type with ports 30080 and 30443
+   # Should show LoadBalancer type
    ```
 
-2. **Check IP forwarding is enabled:**
+2. **Check if minikube tunnel is running:**
    ```bash
-   sudo sysctl net.ipv4.ip_forward
-   # If not 1, enable it:
-   sudo sysctl -w net.ipv4.ip_forward=1
-   sudo sh -c 'echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf'
+   pgrep -f "minikube tunnel"
+   # Should show a process ID
+   ```
+   
+   If not running, start it:
+   ```bash
+   minikube tunnel
+   # Run in background: nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
    ```
 
-3. **Verify iptables NAT rules exist:**
+3. **Check LoadBalancer external IP:**
    ```bash
-   MINIKUBE_IP=$(minikube ip)
-   sudo iptables -t nat -L PREROUTING -n | grep 30443
-   sudo iptables -t nat -L OUTPUT -n | grep 30443
-   ```
-   
-   If rules are missing, run the deploy script again or manually add them:
-   ```bash
-   MINIKUBE_IP=$(minikube ip)
-   HOST_IP=$(hostname -I | awk '{print $1}')
-   
-   # PREROUTING rule (for external traffic)
-   sudo iptables -t nat -A PREROUTING -p tcp --dport 30443 -j DNAT --to-destination ${MINIKUBE_IP}:30443
-   
-   # OUTPUT rules (for localhost and host IP)
-   sudo iptables -t nat -A OUTPUT -p tcp --dport 30443 -d 127.0.0.1 -j DNAT --to-destination ${MINIKUBE_IP}:30443
-   sudo iptables -t nat -A OUTPUT -p tcp --dport 30443 -d ${HOST_IP} -j DNAT --to-destination ${MINIKUBE_IP}:30443
+   kubectl get svc nginx-proxy -n keycloak-proxy -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+   # Should show an IP address (usually 127.0.0.1 or 10.x.x.x with minikube tunnel)
    ```
 
 4. **Test from the server itself:**
    ```bash
    # Should work
-   curl -k https://localhost:30443
-   curl -k https://$(minikube ip):30443
+   curl -k https://localhost:443
+   curl -k http://localhost:80
    ```
 
 5. **Verify AWS Security Group:**
-   - Ensure port 30443 (or your NodePort) is open in the security group
+   - Ensure ports 80 and 443 are open in the security group
    - Check that the rule allows traffic from your IP or 0.0.0.0/0
    - Verify the security group is attached to your EC2 instance
 
@@ -256,18 +246,13 @@ If you get "ERR_CONNECTION_TIMED_OUT" or "ERR_CONNECTION_REFUSED":
    sudo iptables -L INPUT -n
    ```
 
-### NodePort Configuration
+### LoadBalancer Configuration
 
-The NodePorts are **statically configured** in the service definition:
-- **HTTPS**: Port 30443 (NodePort)
-- **HTTP**: Port 30080 (NodePort)
+The service uses **LoadBalancer** type, which with minikube tunnel makes it accessible on standard ports:
+- **HTTPS**: Port 443
+- **HTTP**: Port 80
 
-These are explicitly set in `deploy.sh`. If you need to change them, modify the `nodePort` values in the service definition and update the iptables rules accordingly.
-
-To verify the NodePorts are correctly assigned:
-```bash
-kubectl get svc nginx-proxy -n keycloak-proxy -o yaml | grep nodePort
-```
+The minikube tunnel creates a route that makes the LoadBalancer service accessible on localhost. This is the recommended approach for external access with Minikube.
 
 ### Certificate issues
 

@@ -163,7 +163,7 @@ metadata:
   name: nginx-proxy
   namespace: keycloak-proxy
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: nginx-proxy
   ports:
@@ -171,12 +171,10 @@ spec:
     targetPort: 443
     protocol: TCP
     name: https
-    nodePort: 30443
   - port: 80
     targetPort: 80
     protocol: TCP
     name: http
-    nodePort: 30080
 EOF
 
 # Wait for nginx to be ready
@@ -192,60 +190,42 @@ echo "=== Deployment Status ==="
 kubectl get pods -n keycloak-proxy
 kubectl get services -n keycloak-proxy
 
-# Setup iptables port forwarding to make NodePorts accessible on host interface
+# Start minikube tunnel to expose LoadBalancer service
 echo ""
-echo "=== Setting up port forwarding ==="
-# Enable IP forwarding
-echo "Enabling IP forwarding..."
-sudo sysctl -w net.ipv4.ip_forward=1
-echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf > /dev/null
-
-MINIKUBE_IP=$(minikube ip)
-echo "Minikube IP: $MINIKUBE_IP"
-
-# Function to setup iptables forwarding
-setup_port_forward() {
-    local HOST_PORT=$1
-    local TARGET_IP=$2
-    local TARGET_PORT=$3
-    local HOST_IP=$(hostname -I | awk '{print $1}')
-    
-    # Check if PREROUTING rule already exists
-    if sudo iptables -t nat -C PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
-        echo "PREROUTING rule for $HOST_PORT already exists"
+echo "=== Setting up Minikube tunnel for LoadBalancer service ==="
+# Check if tunnel is already running
+if pgrep -f "minikube tunnel" > /dev/null; then
+    echo "Minikube tunnel is already running"
+else
+    echo "Starting minikube tunnel in background..."
+    nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
+    sleep 5
+    if pgrep -f "minikube tunnel" > /dev/null; then
+        echo "Minikube tunnel started successfully"
+        echo "Tunnel logs: /tmp/minikube-tunnel.log"
     else
-        # Add PREROUTING rule for external traffic
-        echo "Setting up PREROUTING rule for port $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
-        sudo iptables -t nat -A PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+        echo "Warning: Failed to start minikube tunnel automatically."
+        echo "Please run manually: minikube tunnel"
+        echo "This will make the LoadBalancer service accessible on localhost"
     fi
-    
-    # Check if OUTPUT rule for localhost exists
-    if sudo iptables -t nat -C OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
-        echo "OUTPUT rule for localhost ($HOST_PORT) already exists"
-    else
-        # Add OUTPUT rule for localhost
-        echo "Setting up OUTPUT rule for localhost: $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
-        sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
-    fi
-    
-    # Check if OUTPUT rule for host IP exists
-    if [ -n "$HOST_IP" ]; then
-        if sudo iptables -t nat -C OUTPUT -p tcp --dport $HOST_PORT -d ${HOST_IP} -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
-            echo "OUTPUT rule for host IP ($HOST_PORT) already exists"
-        else
-            # Add OUTPUT rule for host IP
-            echo "Setting up OUTPUT rule for host IP ($HOST_IP): $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
-            sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d ${HOST_IP} -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
-        fi
-    fi
-    
-    echo "Port forwarding configured for $HOST_PORT"
-}
+fi
 
-# Setup forwarding for HTTP and HTTPS NodePorts
-setup_port_forward 30080 $MINIKUBE_IP 30080
-setup_port_forward 30443 $MINIKUBE_IP 30443
+# Wait for LoadBalancer to get an external IP
+echo "Waiting for LoadBalancer to get external IP..."
+for i in {1..30}; do
+    EXTERNAL_IP=$(kubectl get svc nginx-proxy -n keycloak-proxy -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    if [ -n "$EXTERNAL_IP" ]; then
+        echo "LoadBalancer external IP: $EXTERNAL_IP"
+        break
+    fi
+    sleep 2
+done
+
+if [ -z "$EXTERNAL_IP" ]; then
+    echo "Note: LoadBalancer may take a moment to get an external IP"
+    echo "Run 'kubectl get svc nginx-proxy -n keycloak-proxy' to check status"
+fi
 
 echo ""
-echo "Port forwarding setup complete. NodePorts should now be accessible on the host interface."
+echo "Service setup complete. The Nginx proxy is now accessible via LoadBalancer."
 

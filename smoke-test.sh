@@ -17,12 +17,14 @@ kubectl config use-context minikube
 MINIKUBE_IP=$(minikube ip)
 echo "Minikube IP: $MINIKUBE_IP"
 
-# Get NodePort for HTTPS
-HTTPS_PORT=$(kubectl get service nginx-proxy -n keycloak-proxy -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
-HTTP_PORT=$(kubectl get service nginx-proxy -n keycloak-proxy -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}')
+# Get service ports
+HTTPS_PORT=$(kubectl get service nginx-proxy -n keycloak-proxy -o jsonpath='{.spec.ports[?(@.name=="https")].port}')
+HTTP_PORT=$(kubectl get service nginx-proxy -n keycloak-proxy -o jsonpath='{.spec.ports[?(@.name=="http")].port}')
+EXTERNAL_IP=$(kubectl get service nginx-proxy -n keycloak-proxy -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
 
-echo "Nginx HTTPS NodePort: $HTTPS_PORT"
-echo "Nginx HTTP NodePort: $HTTP_PORT"
+echo "Nginx HTTPS Port: $HTTPS_PORT"
+echo "Nginx HTTP Port: $HTTP_PORT"
+echo "LoadBalancer External IP: $EXTERNAL_IP"
 
 # Test 1: Check if pods are running
 echo ""
@@ -53,8 +55,8 @@ if [ "$KEYCLOAK_SVC" != "ClusterIP" ]; then
     exit 1
 fi
 
-if [ "$NGINX_SVC" != "NodePort" ]; then
-    echo "FAIL: Nginx service is not NodePort (type: $NGINX_SVC)"
+if [ "$NGINX_SVC" != "LoadBalancer" ]; then
+    echo "FAIL: Nginx service is not LoadBalancer (type: $NGINX_SVC)"
     exit 1
 fi
 
@@ -72,20 +74,31 @@ else
     exit 1
 fi
 
-# Test 4: Check if HTTP redirects to HTTPS
+# Test 4: Check if LoadBalancer has external IP
 echo ""
-echo "Test 4: Testing HTTP to HTTPS redirect..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -k http://$MINIKUBE_IP:$HTTP_PORT/ || echo "000")
+echo "Test 4: Checking LoadBalancer external IP..."
+if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "pending" ]; then
+    echo "PASS: LoadBalancer has external IP: $EXTERNAL_IP"
+    TEST_IP=$EXTERNAL_IP
+else
+    echo "WARN: LoadBalancer external IP not yet assigned, using localhost"
+    TEST_IP="localhost"
+fi
+
+# Test 5: Check if HTTP redirects to HTTPS
+echo ""
+echo "Test 5: Testing HTTP to HTTPS redirect..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -k http://$TEST_IP:$HTTP_PORT/ || echo "000")
 if [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "308" ]; then
     echo "PASS: HTTP correctly redirects to HTTPS"
 else
     echo "WARN: HTTP redirect test returned code: $HTTP_CODE (may be expected)"
 fi
 
-# Test 5: Check if HTTPS endpoint is accessible
+# Test 6: Check if HTTPS endpoint is accessible
 echo ""
-echo "Test 5: Testing HTTPS endpoint..."
-HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -k https://$MINIKUBE_IP:$HTTPS_PORT/ || echo "000")
+echo "Test 6: Testing HTTPS endpoint..."
+HTTPS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -k https://$TEST_IP:$HTTPS_PORT/ || echo "000")
 if [ "$HTTPS_CODE" = "200" ] || [ "$HTTPS_CODE" = "302" ] || [ "$HTTPS_CODE" = "401" ]; then
     echo "PASS: HTTPS endpoint is accessible (HTTP code: $HTTPS_CODE)"
 else
@@ -93,10 +106,10 @@ else
     exit 1
 fi
 
-# Test 6: Check if Keycloak login page is served
+# Test 7: Check if Keycloak login page is served
 echo ""
-echo "Test 6: Testing Keycloak login page..."
-RESPONSE=$(curl -s -k https://$MINIKUBE_IP:$HTTPS_PORT/ | grep -i "keycloak\|sign in\|login" || echo "")
+echo "Test 7: Testing Keycloak login page..."
+RESPONSE=$(curl -s -k https://$TEST_IP:$HTTPS_PORT/ | grep -i "keycloak\|sign in\|login" || echo "")
 if [ -n "$RESPONSE" ]; then
     echo "PASS: Keycloak login page is accessible"
 else
@@ -107,11 +120,17 @@ fi
 echo ""
 echo "=== Smoke Tests Complete ==="
 echo ""
-echo "Access Keycloak at:"
-echo "  HTTPS: https://$MINIKUBE_IP:$HTTPS_PORT"
-echo ""
-echo "For AWS EC2 instance, use:"
-echo "  HTTPS: https://$(curl -s ifconfig.me || echo 'YOUR_EC2_PUBLIC_IP'):$HTTPS_PORT"
+if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "pending" ]; then
+    echo "Access Keycloak at:"
+    echo "  HTTPS: https://$EXTERNAL_IP:$HTTPS_PORT"
+    echo "  HTTP:  http://$EXTERNAL_IP:$HTTP_PORT (redirects to HTTPS)"
+else
+    echo "LoadBalancer external IP is pending. Access Keycloak at:"
+    echo "  HTTPS: https://localhost:$HTTPS_PORT"
+    echo "  HTTP:  http://localhost:$HTTP_PORT (redirects to HTTPS)"
+    echo ""
+    echo "Note: If using AWS EC2, ensure minikube tunnel is running and security group allows ports $HTTP_PORT and $HTTPS_PORT"
+fi
 echo ""
 echo "Note: You'll need to accept the self-signed certificate warning in your browser."
 echo ""
