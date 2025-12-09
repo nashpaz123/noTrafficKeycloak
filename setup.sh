@@ -83,22 +83,7 @@ fi
 echo "=== Minikube cluster is ready ==="
 minikube status
 
-# Start minikube tunnel to expose NodePort services on host interface
+# Port forwarding will be set up automatically by deploy.sh after services are created
 echo ""
-echo "=== Starting Minikube tunnel ==="
-# Check if tunnel is already running
-if pgrep -f "minikube tunnel" > /dev/null; then
-    echo "Minikube tunnel is already running"
-else
-    echo "Starting minikube tunnel in background..."
-    nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
-    sleep 3
-    if pgrep -f "minikube tunnel" > /dev/null; then
-        echo "Minikube tunnel started successfully"
-        echo "Tunnel logs: /tmp/minikube-tunnel.log"
-    else
-        echo "Warning: Failed to start minikube tunnel. You may need to run it manually:"
-        echo "  minikube tunnel"
-    fi
-fi
+echo "Note: Port forwarding for NodePorts will be configured during deployment."
 

@@ -192,3 +192,36 @@ echo "=== Deployment Status ==="
 kubectl get pods -n keycloak-proxy
 kubectl get services -n keycloak-proxy
 
+# Setup iptables port forwarding to make NodePorts accessible on host interface
+echo ""
+echo "=== Setting up port forwarding ==="
+MINIKUBE_IP=$(minikube ip)
+echo "Minikube IP: $MINIKUBE_IP"
+
+# Function to setup iptables forwarding
+setup_port_forward() {
+    local HOST_PORT=$1
+    local TARGET_IP=$2
+    local TARGET_PORT=$3
+    
+    # Check if rule already exists
+    if sudo iptables -t nat -C PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT} 2>/dev/null; then
+        echo "Port forwarding rule for $HOST_PORT already exists"
+        return 0
+    fi
+    
+    # Add iptables rules for port forwarding
+    echo "Setting up iptables forwarding for port $HOST_PORT -> ${TARGET_IP}:${TARGET_PORT}..."
+    sudo iptables -t nat -A PREROUTING -p tcp --dport $HOST_PORT -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+    sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d 127.0.0.1 -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+    sudo iptables -t nat -A OUTPUT -p tcp --dport $HOST_PORT -d $(hostname -I | awk '{print $1}') -j DNAT --to-destination ${TARGET_IP}:${TARGET_PORT}
+    echo "Port forwarding configured for $HOST_PORT"
+}
+
+# Setup forwarding for HTTP and HTTPS NodePorts
+setup_port_forward 30080 $MINIKUBE_IP 30080
+setup_port_forward 30443 $MINIKUBE_IP 30443
+
+echo ""
+echo "Port forwarding setup complete. NodePorts should now be accessible on the host interface."
+
