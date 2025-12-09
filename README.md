@@ -136,6 +136,45 @@ minikube delete
 
 ## Troubleshooting
 
+### Comprehensive Connectivity Tests
+
+Run these tests to diagnose connection issues:
+
+```bash
+# 1. Check Minikube status
+minikube status
+
+# 2. Check service and pod status
+kubectl get svc -n keycloak-proxy
+kubectl get pods -n keycloak-proxy
+
+# 3. Check IP forwarding
+sudo sysctl net.ipv4.ip_forward
+# Should output: net.ipv4.ip_forward = 1
+
+# 4. Check iptables NAT rules
+MINIKUBE_IP=$(minikube ip)
+echo "Minikube IP: $MINIKUBE_IP"
+sudo iptables -t nat -L PREROUTING -n | grep 30443
+sudo iptables -t nat -L OUTPUT -n | grep 30443
+
+# 5. Test connectivity from Minikube IP
+curl -k -v https://$MINIKUBE_IP:30443
+
+# 6. Test connectivity from localhost
+curl -k -v https://localhost:30443
+
+# 7. Test connectivity from public IP (replace with your EC2 IP)
+curl -k -v https://<EC2_PUBLIC_IP>:30443
+
+# 8. Check if port is listening (should show nothing for NodePort)
+sudo ss -tlnp | grep 30443
+
+# 9. Verify firewall status
+sudo ufw status
+sudo iptables -L INPUT -n
+```
+
 ### Pods not starting
 
 Check pod status:
@@ -145,19 +184,74 @@ kubectl describe pod <pod-name> -n keycloak-proxy
 kubectl logs <pod-name> -n keycloak-proxy
 ```
 
-### Cannot access from browser
+### Cannot access from browser (Connection Timeout)
 
-1. Verify the NodePort service is running:
+If you get "ERR_CONNECTION_TIMED_OUT" or "ERR_CONNECTION_REFUSED":
+
+1. **Verify NodePort service is running:**
    ```bash
    kubectl get svc nginx-proxy -n keycloak-proxy
+   # Should show NodePort type with ports 30080 and 30443
    ```
 
-2. Check if the port is accessible:
+2. **Check IP forwarding is enabled:**
    ```bash
-   curl -k https://<IP>:30443
+   sudo sysctl net.ipv4.ip_forward
+   # If not 1, enable it:
+   sudo sysctl -w net.ipv4.ip_forward=1
+   sudo sh -c 'echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf'
    ```
 
-3. For AWS EC2, ensure the security group allows inbound traffic on port 30443
+3. **Verify iptables NAT rules exist:**
+   ```bash
+   MINIKUBE_IP=$(minikube ip)
+   sudo iptables -t nat -L PREROUTING -n | grep 30443
+   sudo iptables -t nat -L OUTPUT -n | grep 30443
+   ```
+   
+   If rules are missing, run the deploy script again or manually add them:
+   ```bash
+   MINIKUBE_IP=$(minikube ip)
+   HOST_IP=$(hostname -I | awk '{print $1}')
+   
+   # PREROUTING rule (for external traffic)
+   sudo iptables -t nat -A PREROUTING -p tcp --dport 30443 -j DNAT --to-destination ${MINIKUBE_IP}:30443
+   
+   # OUTPUT rules (for localhost and host IP)
+   sudo iptables -t nat -A OUTPUT -p tcp --dport 30443 -d 127.0.0.1 -j DNAT --to-destination ${MINIKUBE_IP}:30443
+   sudo iptables -t nat -A OUTPUT -p tcp --dport 30443 -d ${HOST_IP} -j DNAT --to-destination ${MINIKUBE_IP}:30443
+   ```
+
+4. **Test from the server itself:**
+   ```bash
+   # Should work
+   curl -k https://localhost:30443
+   curl -k https://$(minikube ip):30443
+   ```
+
+5. **Verify AWS Security Group:**
+   - Ensure port 30443 (or your NodePort) is open in the security group
+   - Check that the rule allows traffic from your IP or 0.0.0.0/0
+   - Verify the security group is attached to your EC2 instance
+
+6. **Check for other firewalls:**
+   ```bash
+   sudo ufw status
+   sudo iptables -L INPUT -n
+   ```
+
+### NodePort Configuration
+
+The NodePorts are **statically configured** in the service definition:
+- **HTTPS**: Port 30443 (NodePort)
+- **HTTP**: Port 30080 (NodePort)
+
+These are explicitly set in `deploy.sh`. If you need to change them, modify the `nodePort` values in the service definition and update the iptables rules accordingly.
+
+To verify the NodePorts are correctly assigned:
+```bash
+kubectl get svc nginx-proxy -n keycloak-proxy -o yaml | grep nodePort
+```
 
 ### Certificate issues
 
@@ -174,6 +268,19 @@ If Minikube fails to start:
 minikube delete
 minikube start --driver=docker --verbose
 ```
+
+### Iptables rules not persisting
+
+Iptables rules are not persistent across reboots. To make them persistent:
+```bash
+# Install iptables-persistent
+sudo apt-get install -y iptables-persistent
+
+# Save current rules
+sudo netfilter-persistent save
+```
+
+Or add the rules to a startup script that runs on boot.
 
 ## File Structure
 
