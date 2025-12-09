@@ -204,9 +204,10 @@ If you get "ERR_CONNECTION_TIMED_OUT" or "ERR_CONNECTION_REFUSED":
    ```bash
    kubectl get svc nginx-proxy -n keycloak-proxy
    # Should show e.g:
-#   ubuntu@ip-172-31-46-210:~$ kubectl get svc nginx-proxy -n keycloak-proxy
-#NAME          TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
-#nginx-proxy   NodePort   10.101.90.141   <none>        443:30443/TCP,80:30080/TCP   71m
+   # ubuntu@ip-172-31-46-210:~$ kubectl get svc nginx-proxy -n keycloak-proxy
+   # NAME          TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+   # nginx-proxy   NodePort   10.101.90.141   <none>        443:30443/TCP,80:30080/TCP   71m
+
    ```
 
 2. **Check IP forwarding is enabled:**
